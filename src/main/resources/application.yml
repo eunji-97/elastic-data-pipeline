@@ -1,0 +1,54 @@
+spring:
+  application:
+    name: elastic-data-pipeline
+
+  # 기본 프로파일: H2 인메모리 (로컬 개발/테스트)
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        highlight_sql: true
+        jdbc:
+          batch_size: 1000
+        order_inserts: true
+        order_updates: true
+    open-in-view: false
+
+logging:
+  level:
+    org.hibernate.orm.jdbc.bind: TRACE  # 바인딩 파라미터 로그
+
+---
+# PostgreSQL 프로파일
+spring:
+  config:
+    activate:
+      on-profile: postgres
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mydb
+    driver-class-name: org.postgresql.Driver
+    username: root
+    password: secret
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
