@@ -74,7 +74,7 @@ public class BlueGreenService {
         try {
             // Step 1: RDB 저장 (기존 파이프라인 활용)
             Instant t1 = Instant.now();
-            PipelineResult pipeline = pipelineService.run(sourceUrl);
+            PipelineResult pipeline = pipelineService.run(sourceUrl, 0);
             stepTimings.put("1-rdb-load-ms", Duration.between(t1, Instant.now()).toMillis());
 
             if (pipeline.status() == PipelineResult.Status.FAILED) {

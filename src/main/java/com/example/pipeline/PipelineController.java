@@ -25,7 +25,7 @@ class PipelineController {
 
     @PostMapping("/run")
     ResponseEntity<?> run(@RequestBody RunRequest request) {
-        PipelineResult result = pipelineService.run(request.sourceUrl());
+        PipelineResult result = pipelineService.run(request.sourceUrl(), request.maxFiles());
         Map<String, Object> body = toResponseMap(result);
 
         return switch (result.status()) {
@@ -101,5 +101,13 @@ class PipelineController {
         return body;
     }
 
-    record RunRequest(String sourceUrl) {}
+    record RunRequest(String sourceUrl, int maxFiles) {
+        RunRequest {
+            if (maxFiles < 0) maxFiles = 0; // 0 = 제한 없음
+        }
+        /** maxFiles 미지정 시 기본값 0 (전체 처리) */
+        RunRequest(String sourceUrl) {
+            this(sourceUrl, 0);
+        }
+    }
 }

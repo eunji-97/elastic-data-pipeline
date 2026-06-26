@@ -38,11 +38,13 @@ public class RunPipelineService {
      * 디렉토리 URL이면 내부의 모든 .sdf.gz 파일을 발견하여 일괄 처리한다.
      *
      * @param sourceUrl SDF 파일 URL 또는 디렉토리 리스팅 URL
+     * @param maxFiles  최대 처리 파일 수 (0 = 제한 없음)
      * @return 파이프라인 실행 결과 (각 단계별 메트릭 포함)
      */
-    public PipelineResult run(String sourceUrl) {
+    public PipelineResult run(String sourceUrl, int maxFiles) {
         PipelineResult result = PipelineResult.empty();
-        log.info("Pipeline started | batchId={} | source={}", result.batchId(), sourceUrl);
+        log.info("Pipeline started | batchId={} | source={} | maxFiles={}",
+                result.batchId(), sourceUrl, maxFiles > 0 ? maxFiles : "전체");
 
         // URL 유형 감지: .sdf 또는 .sdf.gz로 끝나면 단일 파일, 아니면 디렉토리
         boolean isSingleFile = sourceUrl.endsWith(".sdf") || sourceUrl.endsWith(".sdf.gz");
@@ -50,7 +52,7 @@ public class RunPipelineService {
         if (isSingleFile) {
             return runSingleFile(sourceUrl, result);
         }
-        return runDirectory(sourceUrl, result);
+        return runDirectory(sourceUrl, maxFiles, result);
     }
 
     /** 단일 SDF 파일 처리 (기존 로직). */
@@ -80,7 +82,7 @@ public class RunPipelineService {
     }
 
     /** 디렉토리 모드: 내부의 모든 .sdf.gz 파일을 발견하여 일괄 처리. */
-    private PipelineResult runDirectory(String directoryUrl, PipelineResult result) {
+    private PipelineResult runDirectory(String directoryUrl, int maxFiles, PipelineResult result) {
         Instant downloadStart = Instant.now();
 
         // Step 1: 디렉토리에서 .sdf.gz 파일 목록 발견
@@ -94,6 +96,13 @@ public class RunPipelineService {
 
         if (fileUrls.isEmpty()) {
             return result.failed("디렉토리에서 .sdf.gz 파일을 찾을 수 없습니다: " + directoryUrl).done();
+        }
+
+        // maxFiles 제한 적용
+        int totalDiscovered = fileUrls.size();
+        if (maxFiles > 0 && fileUrls.size() > maxFiles) {
+            fileUrls = fileUrls.subList(0, maxFiles);
+            log.info("전체 {}개 중 {}개만 처리 (maxFiles={})", totalDiscovered, maxFiles, maxFiles);
         }
 
         log.info("디렉토리 모드: {}개 .sdf.gz 파일 발견 → 순차 처리 시작", fileUrls.size());
