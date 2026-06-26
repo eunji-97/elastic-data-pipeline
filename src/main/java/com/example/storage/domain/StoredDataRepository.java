@@ -3,19 +3,23 @@ package com.example.storage.domain;
 import java.util.List;
 
 /**
- * 데이터 저장 Repository 인터페이스.
- * 도메인 계층에서 정의 — 구현은 infra에.
+ * StoredData 저장소 인터페이스.
  */
 public interface StoredDataRepository {
 
-    /**
-     * StoredData 리스트를 벌크 저장한다.
-     * @return 실제 저장된 건수
-     */
-    int saveAll(List<StoredData> batch);
+    int saveAll(List<StoredData> list);
+
+    long countByBatchId(String batchId);
 
     /**
-     * 특정 batchId로 저장된 데이터 건수를 반환한다.
+     * batchId로 저장된 모든 StoredData를 조회한다.
      */
-    long countByBatchId(String batchId);
+    List<StoredData> findByBatchId(String batchId);
+
+    /**
+     * batchId로 저장된 StoredData를 페이지 단위로 조회한다.
+     * @param offset 시작 위치
+     * @param limit  최대 건수
+     */
+    List<StoredData> findByBatchIdPaged(String batchId, int offset, int limit);
 }

@@ -11,12 +11,12 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
 
 /**
- * 파이프라인 실행 Use Case (애플리케이션 서비스).
- * SDF → Storage 오케스트레이션을 담당한다.
+ * SDF 파이프라인 실행 서비스.
+ * download → extract → parse → load 4단계를 순차 실행하고 결과를 집계한다.
  */
 @Service
 public class RunPipelineService {
@@ -32,62 +32,44 @@ public class RunPipelineService {
     }
 
     /**
-     * SDF URL로부터 전체 파이프라인을 실행한다.
+     * 주어진 URL에서 SDF 데이터를 가져와 파싱 후 DB에 저장하는 전체 파이프라인을 실행한다.
      *
-     * @param sourceUrl SDF 아카이브 URL
-     * @return 파이프라인 실행 결과
+     * 단일 파일 URL(.sdf/.sdf.gz)이면 해당 파일만 처리하고,
+     * 디렉토리 URL이면 내부의 모든 .sdf.gz 파일을 발견하여 일괄 처리한다.
+     *
+     * @param sourceUrl SDF 파일 URL 또는 디렉토리 리스팅 URL
+     * @return 파이프라인 실행 결과 (각 단계별 메트릭 포함)
      */
     public PipelineResult run(String sourceUrl) {
         PipelineResult result = PipelineResult.empty();
         log.info("Pipeline started | batchId={} | source={}", result.batchId(), sourceUrl);
 
+        // URL 유형 감지: .sdf 또는 .sdf.gz로 끝나면 단일 파일, 아니면 디렉토리
+        boolean isSingleFile = sourceUrl.endsWith(".sdf") || sourceUrl.endsWith(".sdf.gz");
+
+        if (isSingleFile) {
+            return runSingleFile(sourceUrl, result);
+        }
+        return runDirectory(sourceUrl, result);
+    }
+
+    /** 단일 SDF 파일 처리 (기존 로직). */
+    private PipelineResult runSingleFile(String sourceUrl, PipelineResult result) {
         try {
-            // 1. Download
-            Instant start = Instant.now();
-            SdfMetadata archive = sdfRepository.download(sourceUrl);
-            result.withDownload(archive.fileSizeBytes(), Duration.between(start, Instant.now()));
-            log.info("Step 1/4 Download OK | {} bytes", archive.fileSizeBytes());
+            // Step 1: Download
+            Instant t1 = Instant.now();
+            SdfMetadata downloaded = sdfRepository.download(sourceUrl);
+            result.withDownload(downloaded.fileSizeBytes(), Duration.between(t1, Instant.now()));
+            log.info("Step 1/4 Download OK | {} bytes", downloaded.fileSizeBytes());
 
-            // 2. Extract
-            start = Instant.now();
-            List<SdfMetadata> sdfFiles = sdfRepository.extract(archive).toList();
-            result.withExtraction(sdfFiles.size(), Duration.between(start, Instant.now()));
-            log.info("Step 2/4 Extract OK | {} files", sdfFiles.size());
+            // Step 2: Extract
+            t1 = Instant.now();
+            List<SdfMetadata> extractedFiles = sdfRepository.extract(downloaded).toList();
+            result.withExtraction(extractedFiles.size(), Duration.between(t1, Instant.now()));
+            log.info("Step 2/4 Extract OK | {} files", extractedFiles.size());
 
-            // 3. Parse + 4. Load (streaming: chunk 단위로)
-            int totalParsed = 0;
-            int totalLoaded = 0;
-            int batches = 0;
-
-            for (SdfMetadata sdfFile : sdfFiles) {
-                // 청크 단위 파싱 (한 번에 전부 메모리에 올리지 않음)
-                List<SdfRecord> chunk = sdfRepository.parse(sdfFile).toList();
-                totalParsed += chunk.size();
-
-                // SdfRecord → StoredData 변환 (도메인 매핑)
-                List<StoredData> dataBatch = chunk.stream()
-                        .<StoredData>mapMulti((record, consumer) -> {
-                            for (var prop : record.properties()) {
-                                consumer.accept(StoredData.create(
-                                        record.compoundId(),
-                                        prop.name(),
-                                        prop.value(),
-                                        sourceUrl,
-                                        result.batchId()));
-                            }
-                        })
-                        .toList();
-
-                int loaded = bulkLoadService.loadAll(dataBatch);
-                totalLoaded += loaded;
-                batches++;
-            }
-
-            result.withParsing(totalParsed, 0, null) // TODO: skipped count
-                    .withLoading(totalLoaded, batches, null);
-
-            log.info("Pipeline OK | batchId={} | parsed={} | loaded={}",
-                    result.batchId(), totalParsed, totalLoaded);
+            // Step 3 + 4: Parse and Load
+            processExtractedFiles(extractedFiles, sourceUrl, result);
 
         } catch (Exception e) {
             log.error("Pipeline failed | batchId={}", result.batchId(), e);
@@ -95,5 +77,135 @@ public class RunPipelineService {
         }
 
         return result.done();
+    }
+
+    /** 디렉토리 모드: 내부의 모든 .sdf.gz 파일을 발견하여 일괄 처리. */
+    private PipelineResult runDirectory(String directoryUrl, PipelineResult result) {
+        Instant downloadStart = Instant.now();
+
+        // Step 1: 디렉토리에서 .sdf.gz 파일 목록 발견
+        List<String> fileUrls;
+        try {
+            fileUrls = sdfRepository.discoverSdfUrls(directoryUrl);
+        } catch (Exception e) {
+            log.error("파일 목록 조회 실패: {}", directoryUrl, e);
+            return result.failed("디렉토리 목록 조회 실패: " + e.getMessage()).done();
+        }
+
+        if (fileUrls.isEmpty()) {
+            return result.failed("디렉토리에서 .sdf.gz 파일을 찾을 수 없습니다: " + directoryUrl).done();
+        }
+
+        log.info("디렉토리 모드: {}개 .sdf.gz 파일 발견 → 순차 처리 시작", fileUrls.size());
+
+        int totalRows = 0, insertedCount = 0, totalBatches = 0;
+        int successCount = 0;
+
+        for (int i = 0; i < fileUrls.size(); i++) {
+            String fileUrl = fileUrls.get(i);
+            String fileName = fileUrl.substring(fileUrl.lastIndexOf('/') + 1);
+            Instant fileStart = Instant.now();
+
+            try {
+                log.info("[{}/{}] 처리 시작: {}", i + 1, fileUrls.size(), fileName);
+
+                // Download
+                SdfMetadata downloaded = sdfRepository.download(fileUrl);
+
+                // Extract (pass-through)
+                List<SdfMetadata> extracted = sdfRepository.extract(downloaded).toList();
+
+                // Parse + Load
+                int[] fileCounters = processExtractedFiles(extracted, fileUrl, result);
+                int fileRows = fileCounters[0];
+                int fileInserted = fileCounters[1];
+                int fileBatches = fileCounters[2];
+
+                long elapsedMs = Duration.between(fileStart, Instant.now()).toMillis();
+
+                result.addFileResult(new PipelineResult.FileResult(
+                        fileName, downloaded.fileSizeBytes(),
+                        fileRows, 0, elapsedMs, null));
+
+                totalRows += fileRows;
+                insertedCount += fileInserted;
+                totalBatches += fileBatches;
+                successCount++;
+
+                log.info("[{}/{}] 완료: {} | {} records | {}ms",
+                        i + 1, fileUrls.size(), fileName, fileRows, elapsedMs);
+
+            } catch (Exception e) {
+                long elapsedMs = Duration.between(fileStart, Instant.now()).toMillis();
+                log.error("[{}/{}] 실패: {} - {}", i + 1, fileUrls.size(), fileName, e.getMessage());
+                result.addFileResult(new PipelineResult.FileResult(
+                        fileName, 0, 0, 0, elapsedMs, e.getMessage()));
+                // 개별 파일 실패 시 계속 진행
+            }
+        }
+
+        // 집계 메트릭 설정
+        Duration totalDownloadElapsed = Duration.between(downloadStart, Instant.now());
+        result.withDownload(fileUrls.size(), result.totalDownloadedBytes(), totalDownloadElapsed)
+              .withParsing(totalRows, 0, null)
+              .withLoading(insertedCount, totalBatches, null);
+
+        // 상태 결정
+        if (successCount == 0) {
+            result.failed("모든 파일 처리 실패 (" + fileUrls.size() + "개 중 0개 성공)");
+        } else if (result.failedFileCount() > 0) {
+            result.partial();
+            log.warn("Pipeline PARTIAL | batchId={} | {}/{} files succeeded",
+                    result.batchId(), successCount, fileUrls.size());
+        }
+
+        log.info("Pipeline OK | batchId={} | files={} | parsed={} | loaded={}",
+                result.batchId(), successCount, totalRows, insertedCount);
+        return result.done();
+    }
+
+    /**
+     * 추출된 SDF 파일들을 파싱하여 DB에 저장한다.
+     *
+     * @return [totalRows, insertedCount, totalBatches]
+     */
+    private int[] processExtractedFiles(List<SdfMetadata> extractedFiles,
+                                         String sourceUrl,
+                                         PipelineResult result) {
+        int[] counters = {0, 0, 0}; // totalRows, insertedCount, totalBatches
+        final int CHUNK_SIZE = 50000;
+        List<SdfRecord> chunk = new ArrayList<>();
+
+        for (SdfMetadata fileMeta : extractedFiles) {
+            sdfRepository.parseAndConsume(fileMeta, record -> {
+                chunk.add(record);
+                counters[0]++;
+                if (chunk.size() >= CHUNK_SIZE) {
+                    counters[1] += flushChunk(chunk, sourceUrl, result.batchId());
+                    counters[2]++;
+                    chunk.clear();
+                }
+            });
+        }
+        // 잔여 청크
+        if (!chunk.isEmpty()) {
+            counters[1] += flushChunk(chunk, sourceUrl, result.batchId());
+            counters[2]++;
+        }
+
+        return counters;
+    }
+
+    /** SdfRecord 청크를 StoredData로 변환 후 DB에 저장 */
+    private int flushChunk(List<SdfRecord> chunk, String sourceUrl, String batchId) {
+        List<StoredData> storedDataList = new ArrayList<>();
+        for (SdfRecord record : chunk) {
+            for (SdfRecord.Property prop : record.properties()) {
+                storedDataList.add(StoredData.create(
+                        record.compoundId(), prop.name(), prop.value(),
+                        sourceUrl, batchId));
+            }
+        }
+        return bulkLoadService.loadAll(storedDataList);
     }
 }

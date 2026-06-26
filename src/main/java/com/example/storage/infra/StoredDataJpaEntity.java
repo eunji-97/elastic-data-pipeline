@@ -4,14 +4,13 @@ import com.example.storage.domain.StoredData;
 import jakarta.persistence.*;
 
 /**
- * StoredData의 JPA Entity 구현체.
- * 도메인 Entity를 JPA 애너테이션으로 매핑.
+ * StoredData의 JPA Entity. EAV 모델을 RDB 테이블로 매핑한다.
  */
 @Entity
 @Table(name = "sdf_data", indexes = {
         @Index(name = "idx_compound_id", columnList = "compoundId"),
-        @Index(name = "idx_batch_id", columnList = "batchId"),
-        @Index(name = "idx_source_url", columnList = "sourceUrl")
+        @Index(name = "idx_source_url", columnList = "sourceUrl"),
+        @Index(name = "idx_batch_id", columnList = "batchId")
 })
 class StoredDataJpaEntity {
 
@@ -19,26 +18,27 @@ class StoredDataJpaEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 255)
+    @Column(nullable = false, length = 100)
     private String compoundId;
 
-    @Column(nullable = false, length = 500)
+    @Column(nullable = false, length = 200)
     private String propertyName;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String propertyValue;
 
-    @Column(nullable = false, length = 1024)
+    @Column(nullable = false, length = 500)
     private String sourceUrl;
 
-    @Column(nullable = false, length = 64)
+    @Column(nullable = false, length = 20)
     private String batchId;
 
     protected StoredDataJpaEntity() {
-        // JPA
     }
 
-    /** 도메인 Entity → JPA Entity 변환 */
+    /**
+     * 도메인 엔티티 → JPA Entity 변환
+     */
     static StoredDataJpaEntity from(StoredData domain) {
         StoredDataJpaEntity entity = new StoredDataJpaEntity();
         entity.compoundId = domain.compoundId();
@@ -49,10 +49,10 @@ class StoredDataJpaEntity {
         return entity;
     }
 
-    /** JPA Entity → 도메인 Entity 변환 */
+    /**
+     * JPA Entity → 도메인 엔티티 변환
+     */
     StoredData toDomain() {
-        StoredData data = StoredData.create(compoundId, propertyName, propertyValue,
-                sourceUrl, batchId);
-        return data;
+        return StoredData.create(compoundId, propertyName, propertyValue, sourceUrl, batchId);
     }
 }

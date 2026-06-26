@@ -4,13 +4,13 @@ import com.example.storage.domain.StoredData;
 import com.example.storage.domain.StoredDataRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
 /**
- * StoredDataRepository의 JPA 구현체.
- * 도메인과 JPA 사이의 변환을 담당.
+ * StoredDataRepository 구현체. JPA 기반 저장.
  */
 @Repository
 class StoredDataRepositoryImpl implements StoredDataRepository {
@@ -24,11 +24,10 @@ class StoredDataRepositoryImpl implements StoredDataRepository {
     }
 
     @Override
-    public int saveAll(List<StoredData> batch) {
-        List<StoredDataJpaEntity> entities = batch.stream()
+    public int saveAll(List<StoredData> list) {
+        List<StoredDataJpaEntity> entities = list.stream()
                 .map(StoredDataJpaEntity::from)
                 .toList();
-
         List<StoredDataJpaEntity> saved = jpaRepository.saveAll(entities);
         return saved.size();
     }
@@ -36,5 +35,19 @@ class StoredDataRepositoryImpl implements StoredDataRepository {
     @Override
     public long countByBatchId(String batchId) {
         return jpaRepository.countByBatchId(batchId);
+    }
+
+    @Override
+    public List<StoredData> findByBatchId(String batchId) {
+        return jpaRepository.findByBatchId(batchId).stream()
+                .map(StoredDataJpaEntity::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<StoredData> findByBatchIdPaged(String batchId, int offset, int limit) {
+        return jpaRepository.findByBatchId(batchId, PageRequest.of(offset / limit, limit)).stream()
+                .map(StoredDataJpaEntity::toDomain)
+                .toList();
     }
 }

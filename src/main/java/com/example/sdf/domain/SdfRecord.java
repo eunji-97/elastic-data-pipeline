@@ -4,8 +4,8 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * 파싱된 SDF 레코드 한 건.
- * 불변 Value Object — ID 없음.
+ * SDF(Structure Data File)에서 파싱된 단일 화합물 레코드.
+ * compoundId로 식별되며 여러 Property를 가진다.
  */
 public final class SdfRecord {
 
@@ -14,7 +14,7 @@ public final class SdfRecord {
 
     public SdfRecord(String compoundId, List<Property> properties) {
         this.compoundId = Objects.requireNonNull(compoundId);
-        this.properties = List.copyOf(properties); // 방어 복사
+        this.properties = List.copyOf(properties);
     }
 
     public String compoundId() {
@@ -25,22 +25,15 @@ public final class SdfRecord {
         return properties;
     }
 
+    /**
+     * 프로퍼티 이름으로 값을 조회한다. 없으면 null 반환.
+     */
     public String propertyValue(String name) {
         return properties.stream()
                 .filter(p -> p.name().equals(name))
                 .map(Property::value)
                 .findFirst()
                 .orElse(null);
-    }
-
-    /**
-     * SDF 속성 한 쌍.
-     */
-    public record Property(String name, String value) {
-        public Property {
-            Objects.requireNonNull(name);
-            Objects.requireNonNull(value);
-        }
     }
 
     @Override
@@ -57,6 +50,16 @@ public final class SdfRecord {
 
     @Override
     public String toString() {
-        return "SdfRecord[compoundId=" + compoundId + ", properties=" + properties.size() + "]";
+        return "SdfRecord[compoundId=%s, properties=%d]".formatted(compoundId, properties.size());
+    }
+
+    /**
+     * SDF 프로퍼티 (name-value 쌍).
+     */
+    public record Property(String name, String value) {
+        public Property {
+            Objects.requireNonNull(name);
+            Objects.requireNonNull(value);
+        }
     }
 }

@@ -40,8 +40,16 @@ configurations {
     }
 }
 
+    // Elasticsearch Java Client
+    implementation 'co.elastic.clients:elasticsearch-java:8.16.0'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+    // Spring Kafka
+    implementation 'org.springframework.kafka:spring-kafka'
+
     // Test
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.kafka:spring-kafka-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

@@ -4,8 +4,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 
 /**
- * 다운로드된 SDF 아카이브의 메타데이터.
- * Value Object.
+ * SDF 파일의 메타데이터. 다운로드/추출된 파일의 출처와 위치를 추적한다.
  */
 public final class SdfMetadata {
 
@@ -14,6 +13,11 @@ public final class SdfMetadata {
     private final long fileSizeBytes;
     private final Instant downloadedAt;
 
+    /**
+     * @param sourceUrl     원본 다운로드 URL
+     * @param archivePath   로컬 파일 시스템 상의 경로
+     * @param fileSizeBytes 파일 크기 (byte)
+     */
     public SdfMetadata(String sourceUrl, Path archivePath, long fileSizeBytes) {
         this.sourceUrl = sourceUrl;
         this.archivePath = archivePath;

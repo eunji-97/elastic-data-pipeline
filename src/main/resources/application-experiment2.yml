@@ -1,0 +1,21 @@
+# 실험 2: Blue-Green (RDB 경유 + 정합성 검증)
+# 사용: ./gradlew bootRun --args='--spring.profiles.active=experiment2'
+#
+# SDF 데이터 → RDB 저장 → ES Blue-Green (Reindex + alias swap + 샘플링 검증)
+# 실패 시 기존 인덱스 유지, 롤백 0초
+
+spring:
+  config:
+    activate:
+      on-profile: experiment2
+
+experiment2:
+  enabled: true
+  blue-green:
+    alias: compounds
+    sample-size: 100
+
+elasticsearch:
+  enabled: true  # ES 서버 연결
+  host: localhost
+  port: 9200

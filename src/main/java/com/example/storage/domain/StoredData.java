@@ -3,8 +3,8 @@ package com.example.storage.domain;
 import java.util.Objects;
 
 /**
- * 저장소에 적재될 데이터 Entity (Aggregate Root).
- * JPA에 의존하지 않는 순수 도메인 객체.
+ * SDF 파싱 결과를 저장하는 도메인 엔티티 (EAV 모델).
+ * 각 Property는 개별 row로 저장된다.
  */
 public class StoredData {
 
@@ -16,12 +16,13 @@ public class StoredData {
     private String batchId;
 
     private StoredData() {
-        // factory 전용
     }
 
+    /**
+     * 도메인 엔티티를 생성한다. 모든 필드는 non-null이어야 한다.
+     */
     public static StoredData create(String compoundId, String propertyName,
-                                     String propertyValue, String sourceUrl,
-                                     String batchId) {
+                                     String propertyValue, String sourceUrl, String batchId) {
         StoredData data = new StoredData();
         data.compoundId = Objects.requireNonNull(compoundId);
         data.propertyName = Objects.requireNonNull(propertyName);

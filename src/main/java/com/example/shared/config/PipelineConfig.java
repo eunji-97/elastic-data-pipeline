@@ -9,6 +9,9 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
+/**
+ * 파이프라인 공통 설정.
+ */
 @Configuration
 @EnableAsync
 @EnableTransactionManagement
@@ -16,10 +19,6 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EntityScan(basePackages = "com.example.storage.infra")
 class PipelineConfig {
 
-    /**
-     * 도메인 서비스를 Bean으로 등록.
-     * DDD 원칙상 도메인 계층에는 Spring 애너테이션을 두지 않는다.
-     */
     @Bean
     BulkLoadService bulkLoadService(StoredDataRepository repository) {
         return new BulkLoadService(repository);

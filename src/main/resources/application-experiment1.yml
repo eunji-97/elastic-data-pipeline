@@ -1,0 +1,18 @@
+# 실험 1: Direct ES (기존 플로우 · 베이스라인)
+# 사용: ./gradlew bootRun --args='--spring.profiles.active=experiment1'
+#
+# SDF 데이터 → ES 단일 인덱스 직접 적재
+# 정합성 검증 없음, 실패 시 전체 재적재 필요
+
+spring:
+  config:
+    activate:
+      on-profile: experiment1
+
+experiment1:
+  enabled: true
+
+elasticsearch:
+  enabled: true  # ES 서버 연결
+  host: localhost
+  port: 9200
