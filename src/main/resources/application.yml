@@ -28,6 +28,15 @@ spring:
         order_updates: true
     open-in-view: false
 
+pubchem:
+  ftp:
+    host: ftp.ncbi.nlm.nih.gov
+    full-path: /pubchem/Compound/CURRENT-Full/SDF/
+    monthly-base-path: /pubchem/Compound/Monthly/
+    protocol: https
+    connect-timeout: 30s
+    read-timeout: 300s
+
 logging:
   level:
     org.hibernate.orm.jdbc.bind: TRACE  # 바인딩 파라미터 로그

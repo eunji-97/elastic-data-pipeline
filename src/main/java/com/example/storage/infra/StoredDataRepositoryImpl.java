@@ -5,6 +5,7 @@ import com.example.storage.domain.StoredDataRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -46,7 +47,8 @@ class StoredDataRepositoryImpl implements StoredDataRepository {
 
     @Override
     public List<StoredData> findByBatchIdPaged(String batchId, int offset, int limit) {
-        return jpaRepository.findByBatchId(batchId, PageRequest.of(offset / limit, limit)).stream()
+        return jpaRepository.findByBatchId(batchId,
+                        PageRequest.of(offset / limit, limit, Sort.by(Sort.Direction.ASC, "id"))).stream()
                 .map(StoredDataJpaEntity::toDomain)
                 .toList();
     }

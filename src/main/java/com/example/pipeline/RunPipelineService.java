@@ -32,6 +32,41 @@ public class RunPipelineService {
     }
 
     /**
+     * PubChem CURRENT-Full에서 전체 SDF.gz 파일을 다운로드하여 파이프라인을 실행한다.
+     * application.yml의 pubchem.ftp.full-path 설정을 사용하며, 전체 파일을 제한 없이 처리한다.
+     *
+     * @return 파이프라인 실행 결과
+     */
+    public PipelineResult runFull() {
+        log.info("PubChem Full 다운로드 시작");
+        PipelineResult result = PipelineResult.empty();
+        List<String> fileUrls = sdfRepository.discoverFullSdfUrls();
+        if (fileUrls.isEmpty()) {
+            return result.failed("Full SDF 파일을 찾을 수 없습니다").done();
+        }
+        log.info("Pipeline started | batchId={} | files={}", result.batchId(), fileUrls.size());
+        return runFileList(result, fileUrls);
+    }
+
+    /**
+     * PubChem Monthly에서 가장 최근 월의 SDF.gz 파일을 다운로드하여 파이프라인을 실행한다.
+     * application.yml의 pubchem.ftp.monthly-base-path 하위에서
+     * 가장 최근 YYYY-MM-DD/SDF/ 디렉토리를 자동으로 찾아 처리한다.
+     *
+     * @return 파이프라인 실행 결과
+     */
+    public PipelineResult runMonthly() {
+        log.info("PubChem Monthly 다운로드 시작");
+        PipelineResult result = PipelineResult.empty();
+        List<String> fileUrls = sdfRepository.discoverMonthlySdfUrls();
+        if (fileUrls.isEmpty()) {
+            return result.failed("Monthly SDF 파일을 찾을 수 없습니다").done();
+        }
+        log.info("Pipeline started | batchId={} | files={}", result.batchId(), fileUrls.size());
+        return runFileList(result, fileUrls);
+    }
+
+    /**
      * 주어진 URL에서 SDF 데이터를 가져와 파싱 후 DB에 저장하는 전체 파이프라인을 실행한다.
      *
      * 단일 파일 URL(.sdf/.sdf.gz)이면 해당 파일만 처리하고,
@@ -83,9 +118,6 @@ public class RunPipelineService {
 
     /** 디렉토리 모드: 내부의 모든 .sdf.gz 파일을 발견하여 일괄 처리. */
     private PipelineResult runDirectory(String directoryUrl, int maxFiles, PipelineResult result) {
-        Instant downloadStart = Instant.now();
-
-        // Step 1: 디렉토리에서 .sdf.gz 파일 목록 발견
         List<String> fileUrls;
         try {
             fileUrls = sdfRepository.discoverSdfUrls(directoryUrl);
@@ -105,7 +137,16 @@ public class RunPipelineService {
             log.info("전체 {}개 중 {}개만 처리 (maxFiles={})", totalDiscovered, maxFiles, maxFiles);
         }
 
-        log.info("디렉토리 모드: {}개 .sdf.gz 파일 발견 → 순차 처리 시작", fileUrls.size());
+        return runFileList(result, fileUrls);
+    }
+
+    /**
+     * 미리 발견된 SDF 파일 URL 리스트를 순차적으로 다운로드·파싱·적재한다.
+     * runFull(), runMonthly(), runDirectory()에서 공통으로 사용한다.
+     */
+    private PipelineResult runFileList(PipelineResult result, List<String> fileUrls) {
+        Instant downloadStart = Instant.now();
+        log.info("파일 처리 시작: {}개 .sdf.gz", fileUrls.size());
 
         int totalRows = 0, insertedCount = 0, totalBatches = 0;
         int successCount = 0;

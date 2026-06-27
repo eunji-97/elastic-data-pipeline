@@ -1,5 +1,6 @@
 package com.example.sdf.infra;
 
+import com.example.pipeline.config.PubChemFtpProperties;
 import com.example.sdf.domain.SdfMetadata;
 import com.example.sdf.domain.SdfRecord;
 import com.example.sdf.domain.SdfRepository;
@@ -33,9 +34,19 @@ class SdfRepositoryImpl implements SdfRepository {
     private static final Logger log = LoggerFactory.getLogger(SdfRepositoryImpl.class);
     private static final Path DOWNLOAD_DIR = Path.of(System.getProperty("java.io.tmpdir"), "sdf-pipeline");
 
+    private final PubChemFtpProperties pubChemFtpProperties;
+
     /** <a href="..."> 링크에서 href 속성 값을 추출하기 위한 정규식 */
     private static final Pattern HREF_PATTERN =
             Pattern.compile("<a\\s+(?:[^>]*?\\s+)?href=\"([^\"]*)\"", Pattern.CASE_INSENSITIVE);
+
+    /** Monthly 디렉토리에서 YYYY-MM-DD 형식의 날짜 디렉토리명을 추출하기 위한 정규식 */
+    private static final Pattern DATE_DIR_PATTERN =
+            Pattern.compile("\\b(\\d{4}-\\d{2}-\\d{2})/", Pattern.CASE_INSENSITIVE);
+
+    SdfRepositoryImpl(PubChemFtpProperties pubChemFtpProperties) {
+        this.pubChemFtpProperties = pubChemFtpProperties;
+    }
 
     @Override
     public List<String> discoverSdfUrls(String directoryUrl) {
@@ -43,6 +54,35 @@ class SdfRepositoryImpl implements SdfRepository {
             return discoverLocalDir(directoryUrl);
         }
         return discoverRemoteDir(directoryUrl);
+    }
+
+    @Override
+    public List<String> discoverFullSdfUrls() {
+        String directoryUrl = pubChemFtpProperties.getFullDirectoryUrl();
+        log.info("PubChem Full 데이터 조회: {}", directoryUrl);
+        return discoverSdfUrls(directoryUrl);
+    }
+
+    @Override
+    public List<String> discoverMonthlySdfUrls() {
+        String baseUrl = pubChemFtpProperties.getMonthlyBaseUrl();
+        log.info("PubChem Monthly 기준 디렉토리 조회: {}", baseUrl);
+
+        // 1. Monthly 디렉토리에서 날짜 하위 디렉토리 목록 추출
+        List<String> dateDirs = discoverDateDirectories(baseUrl);
+        if (dateDirs.isEmpty()) {
+            throw new RuntimeException("Monthly 디렉토리에서 날짜 하위 디렉토리를 찾을 수 없습니다: " + baseUrl);
+        }
+
+        // 2. 가장 최근 날짜 선택 (YYYY-MM-DD 문자열 내림차순 정렬)
+        dateDirs.sort(Comparator.reverseOrder());
+        String latest = dateDirs.get(0);
+        log.info("가장 최근 Monthly 업데이트: {}", latest);
+
+        // 3. {latest}/SDF/ 에서 .sdf.gz 발견
+        String sdfDirUrl = baseUrl + latest + "/SDF/";
+        log.info("Monthly SDF 디렉토리 조회: {}", sdfDirUrl);
+        return discoverSdfUrls(sdfDirUrl);
     }
 
     /**
@@ -106,6 +146,36 @@ class SdfRepositoryImpl implements SdfRepository {
             return urls;
         } catch (IOException e) {
             throw new RuntimeException("디렉토리 목록 조회 실패: " + directoryUrl, e);
+        }
+    }
+
+    /**
+     * 원격 Monthly 디렉토리 리스팅 페이지에서 YYYY-MM-DD 형식의 날짜 디렉토리명을 추출한다.
+     * HTML 페이지를 읽어 {@code <a href="YYYY-MM-DD/">} 링크에서 날짜만 수집한다.
+     */
+    private List<String> discoverDateDirectories(String baseUrl) {
+        try {
+            String url = baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
+            byte[] bytes;
+            URI uri = URI.create(url);
+            try (InputStream in = uri.toURL().openStream()) {
+                bytes = in.readAllBytes();
+            }
+            String html = new String(bytes, StandardCharsets.UTF_8);
+
+            List<String> dateDirs = new ArrayList<>();
+            Matcher matcher = DATE_DIR_PATTERN.matcher(html);
+            while (matcher.find()) {
+                String dateStr = matcher.group(1);
+                if (!dateDirs.contains(dateStr)) {
+                    dateDirs.add(dateStr);
+                }
+            }
+
+            log.info("Monthly 디렉토리에서 날짜 {}개 발견: {}", dateDirs.size(), dateDirs);
+            return dateDirs;
+        } catch (IOException e) {
+            throw new RuntimeException("Monthly 디렉토리 조회 실패: " + baseUrl, e);
         }
     }
 

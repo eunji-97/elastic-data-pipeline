@@ -23,6 +23,51 @@ class PipelineController {
         this.pipelineService = pipelineService;
     }
 
+    /**
+     * PubChem CURRENT-Full에서 전체 SDF.gz 파일을 다운로드하여 파이프라인을 실행한다.
+     * 요청 body 불필요 — application.yml의 pubchem.ftp.full-path 설정을 사용한다.
+     */
+    @PostMapping("/run/full")
+    ResponseEntity<?> runFull() {
+        PipelineResult result = pipelineService.runFull();
+        Map<String, Object> body = toResponseMap(result);
+
+        return switch (result.status()) {
+            case SUCCESS -> ResponseEntity.ok(body);
+            case PARTIAL -> {
+                body.put("warning", "일부 파일 처리 실패");
+                yield ResponseEntity.ok(body);
+            }
+            case FAILED -> ResponseEntity.internalServerError().body(Map.of(
+                    "success", false,
+                    "message", result.errorMessage()
+            ));
+        };
+    }
+
+    /**
+     * PubChem Monthly에서 가장 최근 월의 SDF.gz 파일을 다운로드하여 파이프라인을 실행한다.
+     * 요청 body 불필요 — application.yml의 pubchem.ftp.monthly-base-path 설정을 사용한다.
+     * 가장 최근 YYYY-MM-DD/SDF/ 디렉토리를 자동으로 찾는다.
+     */
+    @PostMapping("/run/monthly")
+    ResponseEntity<?> runMonthly() {
+        PipelineResult result = pipelineService.runMonthly();
+        Map<String, Object> body = toResponseMap(result);
+
+        return switch (result.status()) {
+            case SUCCESS -> ResponseEntity.ok(body);
+            case PARTIAL -> {
+                body.put("warning", "일부 파일 처리 실패");
+                yield ResponseEntity.ok(body);
+            }
+            case FAILED -> ResponseEntity.internalServerError().body(Map.of(
+                    "success", false,
+                    "message", result.errorMessage()
+            ));
+        };
+    }
+
     @PostMapping("/run")
     ResponseEntity<?> run(@RequestBody RunRequest request) {
         PipelineResult result = pipelineService.run(request.sourceUrl(), request.maxFiles());

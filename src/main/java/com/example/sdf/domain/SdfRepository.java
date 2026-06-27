@@ -20,6 +20,23 @@ public interface SdfRepository {
     List<String> discoverSdfUrls(String directoryUrl);
 
     /**
+     * PubChem CURRENT-Full에서 모든 .sdf.gz 파일 URL 목록을 발견한다.
+     * application.yml의 pubchem.ftp.full-path 설정에 정의된 디렉토리에서 조회한다.
+     *
+     * @return 발견된 .sdf.gz 파일 URL 리스트 (없으면 빈 리스트)
+     */
+    List<String> discoverFullSdfUrls();
+
+    /**
+     * PubChem Monthly에서 가장 최근 월의 .sdf.gz 파일 URL 목록을 발견한다.
+     * application.yml의 pubchem.ftp.monthly-base-path 하위의
+     * 가장 최근 YYYY-MM-DD/SDF/ 디렉토리에서 조회한다.
+     *
+     * @return 발견된 .sdf.gz 파일 URL 리스트 (없으면 빈 리스트)
+     */
+    List<String> discoverMonthlySdfUrls();
+
+    /**
      * URL에서 SDF 파일을 다운로드한다.
      *
      * @param sourceUrl 다운로드할 SDF 파일 URL (.sdf 또는 .sdf.gz)
