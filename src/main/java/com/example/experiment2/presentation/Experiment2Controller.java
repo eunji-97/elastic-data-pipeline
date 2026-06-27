@@ -23,7 +23,27 @@ public class Experiment2Controller {
     }
 
     /**
-     * Blue-Green 전체 사이클 실행.
+     * PubChem CURRENT-Full → Blue-Green 전체 사이클 실행.
+     * 요청 body 불필요 — application.yml의 pubchem.ftp.full-path 설정을 사용한다.
+     */
+    @PostMapping("/run/full")
+    ResponseEntity<Map<String, Object>> runFull() {
+        BlueGreenService.CycleResult result = blueGreenService.runFullCycle();
+        return toCycleResponse(result);
+    }
+
+    /**
+     * PubChem Monthly → Blue-Green 사이클 실행.
+     * 요청 body 불필요 — 가장 최근 월 데이터를 자동으로 찾아 처리한다.
+     */
+    @PostMapping("/run/monthly")
+    ResponseEntity<Map<String, Object>> runMonthly() {
+        BlueGreenService.CycleResult result = blueGreenService.runMonthlyCycle();
+        return toCycleResponse(result);
+    }
+
+    /**
+     * Blue-Green 전체 사이클 실행 (기존 방식 — URL 직접 지정).
      */
     @PostMapping("/run")
     ResponseEntity<Map<String, Object>> run(@RequestBody Map<String, String> request) {
@@ -31,7 +51,24 @@ public class Experiment2Controller {
                 "file:///tmp/pubchem-test/Compound_050000001_050500000.sdf.gz");
 
         BlueGreenService.CycleResult result = blueGreenService.runCycle(sourceUrl);
+        return toCycleResponse(result);
+    }
 
+    /**
+     * 장애 주입 — 특정 단계에서 오류 시뮬레이션.
+     */
+    @PostMapping("/inject-failure")
+    ResponseEntity<Map<String, Object>> injectFailure(@RequestBody Map<String, String> request) {
+        String phase = request.getOrDefault("phase", "bulk-update");
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Failure injection at phase: " + phase,
+                "expectedBehavior", "기존 인덱스 untouched, 신규 인덱스 삭제됨"
+        ));
+    }
+
+    /** CycleResult → 공통 응답 맵 변환. */
+    private ResponseEntity<Map<String, Object>> toCycleResponse(BlueGreenService.CycleResult result) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("success", result.success());
         body.put("version", result.version());
@@ -50,19 +87,6 @@ public class Experiment2Controller {
         return result.success()
                 ? ResponseEntity.ok(body)
                 : ResponseEntity.internalServerError().body(body);
-    }
-
-    /**
-     * 장애 주입 — 특정 단계에서 오류 시뮬레이션.
-     */
-    @PostMapping("/inject-failure")
-    ResponseEntity<Map<String, Object>> injectFailure(@RequestBody Map<String, String> request) {
-        String phase = request.getOrDefault("phase", "bulk-update");
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Failure injection at phase: " + phase,
-                "expectedBehavior", "기존 인덱스 untouched, 신규 인덱스 삭제됨"
-        ));
     }
 
     /**

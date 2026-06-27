@@ -57,33 +57,68 @@ public class BlueGreenService {
     }
 
     /**
-     * Blue-Green 전체 사이클 실행.
+     * PubChem CURRENT-Full → Blue-Green 전체 사이클 실행.
+     * application.yml의 pubchem.ftp.full-path 설정을 사용한다.
+     *
+     * @return 사이클 결과
+     */
+    public CycleResult runFullCycle() {
+        log.info("=== Experiment 2: Blue-Green Full Cycle ===");
+        PipelineResult pipeline = pipelineService.runFull();
+        if (pipeline.status() == PipelineResult.Status.FAILED) {
+            return new CycleResult(false, currentVersion, detectActiveIndex(),
+                    0, 0, 0, 0, Map.of(), "Full RDB 적재 실패: " + pipeline.errorMessage());
+        }
+        return runBlueGreenCycle(pipeline);
+    }
+
+    /**
+     * PubChem Monthly → Blue-Green 전체 사이클 실행.
+     * application.yml의 pubchem.ftp.monthly-base-path 하위 가장 최근 월 데이터를 사용한다.
+     *
+     * @return 사이클 결과
+     */
+    public CycleResult runMonthlyCycle() {
+        log.info("=== Experiment 2: Blue-Green Monthly Cycle ===");
+        PipelineResult pipeline = pipelineService.runMonthly();
+        if (pipeline.status() == PipelineResult.Status.FAILED) {
+            return new CycleResult(false, currentVersion, detectActiveIndex(),
+                    0, 0, 0, 0, Map.of(), "Monthly RDB 적재 실패: " + pipeline.errorMessage());
+        }
+        return runBlueGreenCycle(pipeline);
+    }
+
+    /**
+     * 지정된 URL로 Blue-Green 전체 사이클 실행 (기존 하위 호환).
      *
      * @param sourceUrl SDF 파일 URL
      * @return 사이클 결과
      */
     public CycleResult runCycle(String sourceUrl) {
+        log.info("=== Experiment 2: Blue-Green Cycle (sourceUrl) ===");
+        PipelineResult pipeline = pipelineService.run(sourceUrl, 0);
+        if (pipeline.status() == PipelineResult.Status.FAILED) {
+            return new CycleResult(false, currentVersion, detectActiveIndex(),
+                    0, 0, 0, 0, Map.of(), "RDB 적재 실패: " + pipeline.errorMessage());
+        }
+        return runBlueGreenCycle(pipeline);
+    }
+
+    /**
+     * RDB 적재 완료된 PipelineResult를 기반으로 Blue-Green ES 작업(Step 2~6)을 실행한다.
+     * runFullCycle(), runMonthlyCycle(), runCycle()에서 공통으로 사용한다.
+     */
+    private CycleResult runBlueGreenCycle(PipelineResult pipeline) {
         Instant cycleStart = Instant.now();
         IndexAlias alias = new IndexAlias(ALIAS, currentVersion);
         Map<String, Long> stepTimings = new LinkedHashMap<>();
-        String error = null;
 
-        log.info("=== Experiment 2: Blue-Green Cycle 시작 ===");
         log.info("Active: {} → Next: {}", alias.activeIndex(), alias.nextIndex());
+        log.info("[1/6] RDB 저장 완료: {} rows", pipeline.loading() != null ? pipeline.loading().insertedCount() : 0);
 
         try {
-            // Step 1: RDB 저장 (기존 파이프라인 활용)
-            Instant t1 = Instant.now();
-            PipelineResult pipeline = pipelineService.run(sourceUrl, 0);
-            stepTimings.put("1-rdb-load-ms", Duration.between(t1, Instant.now()).toMillis());
-
-            if (pipeline.status() == PipelineResult.Status.FAILED) {
-                throw new RuntimeException("RDB 적재 실패: " + pipeline.errorMessage());
-            }
-            log.info("[1/6] RDB 저장 완료: {} rows", pipeline.loading() != null ? pipeline.loading().insertedCount() : 0);
-
             // Step 2: 신규 인덱스 생성 (Blue)
-            t1 = Instant.now();
+            Instant t1 = Instant.now();
             createNextIndex(alias);
             stepTimings.put("2-create-index-ms", Duration.between(t1, Instant.now()).toMillis());
             log.info("[2/6] 신규 인덱스 생성: {}", alias.nextIndex());
@@ -146,6 +181,11 @@ public class BlueGreenService {
             return new CycleResult(false, currentVersion, alias.activeIndex(),
                     0, 0, 0, totalElapsed.toMillis(), stepTimings, e.getMessage());
         }
+    }
+
+    /** 현재 활성 인덱스명을 반환 (실패 메시지용). */
+    private String detectActiveIndex() {
+        return ALIAS + "_v" + currentVersion;
     }
 
     /**
