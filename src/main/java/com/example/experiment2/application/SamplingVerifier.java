@@ -10,7 +10,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * 실험 2 - RDB vs ES 샘플링 정합성 검증기.
@@ -48,34 +47,59 @@ public class SamplingVerifier {
         int checked = 0;
         int matched = 0;
 
-        // 참고: 실제 무작위 샘플링을 위해서는 RDB에 인덱스를 타야 함.
-        // 현재 StoredDataRepository에는 countByBatchId만 있으므로,
-        // 전체를 가져와서 무작위 추출하는 방식으로 구현한다.
-        // (프로덕션에서는 커서 기반 랜덤 샘플링 또는 ORDER BY RANDOM 사용)
-
         try {
-            // ES에서 해당 배치의 화합물 ID 목록 조회
-            var searchResponse = esClient.search(s -> s
-                            .index(indexName)
-                            .query(q -> q.match(m -> m.field("batchId").query(batchId)))
-                            .size(sampleSize),
-                    Map.class
-            );
+            // Step 1: RDB에서 batchId 기준으로 compoundId 목록을 무작위 추출
+            // findAll 대신 페이징을 활용하여 전체 compoundId 수집 후 샘플링
+            long totalRows = rdbRepository.countByBatchId(batchId);
+            if (totalRows == 0) {
+                log.warn("RDB에 batchId={} 데이터가 없습니다", batchId);
+                return new VerificationResult(0, 0, List.of("RDB에 데이터 없음"));
+            }
 
-            List<String> compoundIds = searchResponse.hits().hits().stream()
-                    .map(hit -> (String) hit.source().get("compoundId"))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
+            // RDB에서 compoundId 목록 수집 (최대 5000개까지 스캔하여 샘플링 후보 확보)
+            Set<String> compoundIdCandidates = new LinkedHashSet<>();
+            int scanLimit = Math.min((int) totalRows, 5000);
+            int pageSize = 1000;
+            for (int offset = 0; offset < scanLimit && compoundIdCandidates.size() < sampleSize * 5; offset += pageSize) {
+                List<StoredData> rows = rdbRepository.findByBatchIdPaged(batchId, offset, pageSize);
+                for (StoredData row : rows) {
+                    compoundIdCandidates.add(row.compoundId());
+                }
+            }
 
-            log.info("ES에서 {} 개 compoundId 조회됨", compoundIds.size());
+            if (compoundIdCandidates.isEmpty()) {
+                log.warn("RDB에서 compoundId를 찾을 수 없습니다");
+                return new VerificationResult(0, 0, List.of("RDB에서 compoundId를 찾을 수 없음"));
+            }
 
-            for (String compoundId : compoundIds) {
+            // 무작위 샘플링
+            List<String> candidateList = new ArrayList<>(compoundIdCandidates);
+            Collections.shuffle(candidateList);
+            List<String> sampleCompoundIds = candidateList.subList(0, Math.min(sampleSize, candidateList.size()));
+
+            log.info("RDB에서 {}개 compoundId 샘플링 완료 (후보: {}개)", sampleCompoundIds.size(), candidateList.size());
+
+            // Step 2: 각 compoundId에 대해 RDB vs ES 비교
+            for (String compoundId : sampleCompoundIds) {
                 checked++;
                 try {
+                    // RDB에서 해당 compoundId의 모든 프로퍼티 조회
+                    List<StoredData> rdbRows = rdbRepository.findByBatchIdAndCompoundId(batchId, compoundId);
+                    if (rdbRows.isEmpty()) {
+                        mismatches.add(compoundId + ": RDB에 없음");
+                        continue;
+                    }
+
+                    // RDB 프로퍼티를 Map으로 변환
+                    Map<String, String> rdbProps = new LinkedHashMap<>();
+                    for (StoredData row : rdbRows) {
+                        rdbProps.put(row.propertyName(), row.propertyValue());
+                    }
+
                     // ES에서 해당 compoundId 조회
                     GetResponse<Map> esDoc = esClient.get(g -> g.index(indexName).id(compoundId), Map.class);
                     if (!esDoc.found()) {
-                        mismatches.add(compoundId + ": ES에 없음");
+                        mismatches.add(compoundId + ": ES에 없음 (RDB에는 " + rdbProps.size() + "개 프로퍼티 존재)");
                         continue;
                     }
 
@@ -85,14 +109,39 @@ public class SamplingVerifier {
                         continue;
                     }
 
-                    // 필드 단위 비교 (현재는 ES-RDB 간에 compoundId 기준으로만 확인)
-                    // TODO: RDB에서 동일 compoundId의 모든 property를 조회하여 필드 비교
                     @SuppressWarnings("unchecked")
                     Map<String, String> esProps = (Map<String, String>) esSource.get("properties");
-                    if (esProps != null && !esProps.isEmpty()) {
+                    if (esProps == null || esProps.isEmpty()) {
+                        mismatches.add(compoundId + ": ES properties 비어있음 (RDB: " + rdbProps.size() + "개)");
+                        continue;
+                    }
+
+                    // RDB vs ES 프로퍼티 단위 비교
+                    boolean compoundMatched = true;
+                    for (Map.Entry<String, String> rdbEntry : rdbProps.entrySet()) {
+                        String propName = rdbEntry.getKey();
+                        String rdbValue = rdbEntry.getValue();
+                        String esValue = esProps.get(propName);
+
+                        if (esValue == null) {
+                            mismatches.add(compoundId + ": ES에 '" + propName + "' 프로퍼티 누락");
+                            compoundMatched = false;
+                        } else if (!rdbValue.equals(esValue)) {
+                            mismatches.add(compoundId + ": '" + propName + "' 불일치 — RDB='" + rdbValue + "' ES='" + esValue + "'");
+                            compoundMatched = false;
+                        }
+                    }
+
+                    // ES에만 있고 RDB에는 없는 프로퍼티 검사
+                    for (String esPropName : esProps.keySet()) {
+                        if (!rdbProps.containsKey(esPropName)) {
+                            mismatches.add(compoundId + ": RDB에 '" + esPropName + "' 프로퍼티 누락");
+                            compoundMatched = false;
+                        }
+                    }
+
+                    if (compoundMatched) {
                         matched++;
-                    } else {
-                        mismatches.add(compoundId + ": properties 비어있음");
                     }
 
                 } catch (Exception e) {
@@ -101,12 +150,13 @@ public class SamplingVerifier {
             }
 
         } catch (Exception e) {
-            log.error("샘플링 검증 중 오류: {}", e.getMessage());
+            log.error("샘플링 검증 중 오류: {}", e.getMessage(), e);
             mismatches.add("검증 오류: " + e.getMessage());
         }
 
         VerificationResult result = new VerificationResult(checked, matched, mismatches);
-        log.info("샘플링 검증 완료: {}/{} matched, passed={}", matched, checked, result.passed());
+        log.info("샘플링 검증 완료: {}/{} matched ({}%), passed={}",
+                matched, checked, String.format("%.1f", result.matchRate()), result.passed());
         return result;
     }
 }

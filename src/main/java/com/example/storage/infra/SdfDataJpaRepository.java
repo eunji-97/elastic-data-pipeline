@@ -12,4 +12,6 @@ interface SdfDataJpaRepository extends JpaRepository<StoredDataJpaEntity, Long> 
     java.util.List<StoredDataJpaEntity> findByBatchId(String batchId);
 
     java.util.List<StoredDataJpaEntity> findByBatchId(String batchId, org.springframework.data.domain.Pageable pageable);
+
+    java.util.List<StoredDataJpaEntity> findByBatchIdAndCompoundId(String batchId, String compoundId);
 }

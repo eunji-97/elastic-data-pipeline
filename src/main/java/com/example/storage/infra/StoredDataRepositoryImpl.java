@@ -52,4 +52,11 @@ class StoredDataRepositoryImpl implements StoredDataRepository {
                 .map(StoredDataJpaEntity::toDomain)
                 .toList();
     }
+
+    @Override
+    public List<StoredData> findByBatchIdAndCompoundId(String batchId, String compoundId) {
+        return jpaRepository.findByBatchIdAndCompoundId(batchId, compoundId).stream()
+                .map(StoredDataJpaEntity::toDomain)
+                .toList();
+    }
 }

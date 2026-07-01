@@ -22,4 +22,9 @@ public interface StoredDataRepository {
      * @param limit  최대 건수
      */
     List<StoredData> findByBatchIdPaged(String batchId, int offset, int limit);
+
+    /**
+     * batchId와 compoundId로 저장된 StoredData(프로퍼티 목록)를 조회한다.
+     */
+    List<StoredData> findByBatchIdAndCompoundId(String batchId, String compoundId);
 }

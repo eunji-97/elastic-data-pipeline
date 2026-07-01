@@ -9,6 +9,7 @@ import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.CredentialsProvider;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.elasticsearch.client.RestClient;
+import org.elasticsearch.client.RestClientBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,19 +44,24 @@ public class ElasticsearchClientProvider {
         log.info("Creating Elasticsearch client for {}:{}", host, port);
 
         HttpHost httpHost = new HttpHost(host, port, "http");
-        RestClient restClient;
+
+        // 대용량 bulk/reindex 작업을 위한 넉넉한 타임아웃 설정
+        RestClientBuilder builder = RestClient.builder(httpHost)
+                .setRequestConfigCallback(rcb -> rcb
+                        .setConnectTimeout(10_000)         // 연결 타임아웃: 10초
+                        .setSocketTimeout(600_000)         // 소켓 타임아웃: 10분 (bulk/reindex 대응)
+                        .setConnectionRequestTimeout(30_000) // 커넥션 요청 타임아웃: 30초
+                );
 
         if (username != null && password != null) {
             CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
             credentialsProvider.setCredentials(AuthScope.ANY,
                     new UsernamePasswordCredentials(username, password));
-            restClient = RestClient.builder(httpHost)
-                    .setHttpClientConfigCallback(httpClientBuilder ->
-                            httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider))
-                    .build();
-        } else {
-            restClient = RestClient.builder(httpHost).build();
+            builder.setHttpClientConfigCallback(httpClientBuilder ->
+                    httpClientBuilder.setDefaultCredentialsProvider(credentialsProvider));
         }
+
+        RestClient restClient = builder.build();
 
         RestClientTransport transport = new RestClientTransport(restClient, new JacksonJsonpMapper());
         ElasticsearchClient client = new ElasticsearchClient(transport);

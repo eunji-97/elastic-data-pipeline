@@ -63,6 +63,7 @@ public interface SdfRepository {
 
     /**
      * SDF 파일을 파싱하며 레코드마다 consumer를 호출한다. (메모리 절약 — 전체를 리스트에 담지 않음)
+     * @return 건너뛴 레코드 수
      */
-    void parseAndConsume(SdfMetadata metadata, java.util.function.Consumer<SdfRecord> consumer);
+    int parseAndConsume(SdfMetadata metadata, java.util.function.Consumer<SdfRecord> consumer);
 }

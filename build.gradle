@@ -33,13 +33,6 @@ dependencies {
     testCompileOnly 'org.projectlombok:lombok:1.18.38'
     testAnnotationProcessor 'org.projectlombok:lombok:1.18.38'
 
-// Gradle 9.x 호환: annotation processor 의존성을 compileOnly로 확장
-configurations {
-    compileOnly {
-        extendsFrom annotationProcessor
-    }
-}
-
     // Elasticsearch Java Client
     implementation 'co.elastic.clients:elasticsearch-java:8.16.0'
     implementation 'com.fasterxml.jackson.core:jackson-databind'
@@ -51,6 +44,13 @@ configurations {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.kafka:spring-kafka-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// Gradle 9.x 호환: annotation processor 의존성을 compileOnly로 확장
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
 }
 
 tasks.named('test') {

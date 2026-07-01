@@ -170,12 +170,13 @@ public class RunPipelineService {
                 int fileRows = fileCounters[0];
                 int fileInserted = fileCounters[1];
                 int fileBatches = fileCounters[2];
+                int fileSkipped = fileCounters[3];
 
                 long elapsedMs = Duration.between(fileStart, Instant.now()).toMillis();
 
                 result.addFileResult(new PipelineResult.FileResult(
                         fileName, downloaded.fileSizeBytes(),
-                        fileRows, 0, elapsedMs, null));
+                        fileRows, fileSkipped, elapsedMs, null));
 
                 totalRows += fileRows;
                 insertedCount += fileInserted;
@@ -217,17 +218,17 @@ public class RunPipelineService {
     /**
      * 추출된 SDF 파일들을 파싱하여 DB에 저장한다.
      *
-     * @return [totalRows, insertedCount, totalBatches]
+     * @return [totalRows, insertedCount, totalBatches, skippedRows]
      */
     private int[] processExtractedFiles(List<SdfMetadata> extractedFiles,
                                          String sourceUrl,
                                          PipelineResult result) {
-        int[] counters = {0, 0, 0}; // totalRows, insertedCount, totalBatches
+        int[] counters = {0, 0, 0, 0}; // totalRows, insertedCount, totalBatches, skippedRows
         final int CHUNK_SIZE = 50000;
         List<SdfRecord> chunk = new ArrayList<>();
 
         for (SdfMetadata fileMeta : extractedFiles) {
-            sdfRepository.parseAndConsume(fileMeta, record -> {
+            int skipped = sdfRepository.parseAndConsume(fileMeta, record -> {
                 chunk.add(record);
                 counters[0]++;
                 if (chunk.size() >= CHUNK_SIZE) {
@@ -236,6 +237,7 @@ public class RunPipelineService {
                     chunk.clear();
                 }
             });
+            counters[3] += skipped;
         }
         // 잔여 청크
         if (!chunk.isEmpty()) {

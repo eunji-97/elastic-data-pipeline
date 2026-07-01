@@ -223,7 +223,7 @@ class SdfRepositoryImpl implements SdfRepository {
     }
 
     @Override
-    public void parseAndConsume(SdfMetadata metadata, java.util.function.Consumer<SdfRecord> consumer) {
+    public int parseAndConsume(SdfMetadata metadata, java.util.function.Consumer<SdfRecord> consumer) {
         log.info("Parsing: {}", metadata.archivePath());
         Path path = metadata.archivePath();
         boolean isGz = path.toString().endsWith(".gz");
@@ -268,6 +268,7 @@ class SdfRepositoryImpl implements SdfRepository {
 
             log.info("Parsed: {} records ({} skipped) from {}",
                     totalRecords - skippedRecords, skippedRecords, path.getFileName());
+            return skippedRecords;
         } catch (IOException e) {
             throw new RuntimeException("SDF parse failed: " + path, e);
         }
